@@ -49,6 +49,10 @@ impl<T: Read> Truc<T> {
         let size = u64::from_le_bytes(size);
         println!("contains {size} elements");
 
+        // ptr alignment might be wrong but _usually_ it works
+        // if the segfault still reproduces, you can try initializing
+        // the vec as a Vec<u64> and do your widly unsafe thing.
+        // It's still UB, but hey, it might work sometimes
         let mut buf = Vec::with_capacity(size as usize);
         io::copy(
             &mut self
@@ -62,8 +66,11 @@ impl<T: Read> Truc<T> {
         println!("u8 bucket {buf:?}");
 
         unsafe {
-            buf.set_len(buf.len() / 8);
-            std::mem::transmute(buf)
+            let len = buf.len();
+            let cap = buf.capacity();
+            let ptr = buf.as_ptr();
+            std::mem::forget(buf);
+            Vec::from_raw_parts(ptr as *mut u64, len / 8, cap / 8)
         }
     }
 }
@@ -75,14 +82,27 @@ mod test {
     #[test]
     fn read() {
         let base: Vec<Vec<u64>> = vec![
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
             vec![0, 1, 2, 4, 5],
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
             vec![2, 1, 4, 3, 4, 5],
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
+            vec![2, 1, 4, 3, 4, 5],
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
             vec![5, 2, 6, 4, 5],
-            vec![3, 15, 21, 3, 8, 54],
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
+            vec![2, 1, 4, 3, 4, 5],
+            vec![3, 15, 21, 3, 8, 54, 3, 8, 54, 8, 54, 3, 3, 4, 5],
         ];
 
         let serialized = bincode::serialize(&base).unwrap();
         println!("{:?}", serialized);
+
+        for minute in 0..base.len() {
+            let res = Truc::deserialize(serialized.as_slice());
+            dbg!(&res);
+            assert_eq!(base[minute], res.get_minute(minute as u64));
+        }
 
         for minute in 0..base.len() {
             let res = Truc::deserialize(serialized.as_slice());
